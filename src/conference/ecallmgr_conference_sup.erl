@@ -1,42 +1,25 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2010-2019, 2600Hz
+%%% @copyright (C) 2012-2019, 2600Hz
 %%% @doc
-%%% @author Karl Anderson
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(ecallmgr_auxiliary_sup).
+-module(ecallmgr_conference_sup).
 
 -behaviour(supervisor).
 
 -include("ecallmgr.hrl").
--include_lib("kazoo_stdlib/include/kz_databases.hrl").
 
 -define(SERVER, ?MODULE).
 
 -export([start_link/0]).
--export([cache_proc/0]).
+-export([add_node/2]).
+-export([remove_node/1]).
+-export([find_node/1]).
 -export([init/1]).
 
--define(CACHE_AUTHN_PROPS, [{'origin_bindings', [[{'type', <<"account">>}]
-                                                ,[{'type', <<"device">>}]
-                                                ,[{'type', <<"user">>}]
-                                                ]
-                            }
-                           ]).
--define(CACHE_UTIL_PROPS, [{'origin_bindings', [[{'db', ?KZ_CONFIG_DB}]
-                                               ,[{'type', <<"media">>}]
-                                               ]
-                           }
-                          ]).
-
--define(CHILDREN, [?CACHE_ARGS(?ECALLMGR_UTIL_CACHE, ?CACHE_UTIL_PROPS)
-                  ,?CACHE_ARGS(?ECALLMGR_AUTH_CACHE, ?CACHE_AUTHN_PROPS)
-                  ,?CACHE(?ECALLMGR_CALL_CACHE)
-                  ,?SUPER('ecallmgr_originate_sup')
-                  ,?WORKER('ecallmgr_registrar')
-                  ,?WORKER('ecallmgr_balance_crawler_statem')
-                  ,?WORKER('ecallmgr_discovery')
-                  ,?WORKER('ecallmgr_usurp_monitor')
+-define(CHILDREN, [?SUPER('ecallmgr_conference_control_sup')
+                  ,?WORKER('ecallmgr_fs_conferences_shared')
+                  ,?WORKER('ecallmgr_fs_conferences')
                   ]).
 
 %%==============================================================================
@@ -51,8 +34,24 @@
 start_link() ->
     supervisor:start_link({'local', ?SERVER}, ?MODULE, []).
 
--spec cache_proc() -> atom().
-cache_proc() -> ?ECALLMGR_UTIL_CACHE.
+-spec add_node(atom(), kz_term:proplist()) -> kz_types:sup_startchild_ret().
+add_node(Node, Options) ->
+    Args = [Node, Options],
+    ChildSpec = ?SUPER_NAME_ARGS_TYPE(Node, 'ecallmgr_fs_node_sup', Args, 'transient'),
+    supervisor:start_child(?SERVER, ChildSpec).
+
+-spec find_node(atom()) -> kz_term:api_pid().
+find_node(Node) ->
+    find_node(supervisor:which_children(?SERVER), Node).
+
+find_node([], _) -> 'undefined';
+find_node([{Node, Pid, 'supervisor', _}|_], Node) -> Pid;
+find_node([_|Workers], Node) -> find_node(Workers, Node).
+
+-spec remove_node(atom()) -> 'ok' | {'error', any()}.
+remove_node(Node) ->
+    _ = supervisor:terminate_child(?SERVER, Node),
+    supervisor:delete_child(?SERVER, Node).
 
 %%==============================================================================
 %% Supervisor callbacks

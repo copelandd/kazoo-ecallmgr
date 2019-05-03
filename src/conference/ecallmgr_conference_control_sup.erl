@@ -1,43 +1,23 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2010-2019, 2600Hz
+%%% @copyright (C) 2012-2019, 2600Hz
 %%% @doc
-%%% @author Karl Anderson
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(ecallmgr_auxiliary_sup).
+-module(ecallmgr_conference_control_sup).
 
 -behaviour(supervisor).
 
 -include("ecallmgr.hrl").
--include_lib("kazoo_stdlib/include/kz_databases.hrl").
 
 -define(SERVER, ?MODULE).
 
 -export([start_link/0]).
--export([cache_proc/0]).
 -export([init/1]).
+-export([start_conference_control/3
+        ,stop_conference_control/3
+        ]).
 
--define(CACHE_AUTHN_PROPS, [{'origin_bindings', [[{'type', <<"account">>}]
-                                                ,[{'type', <<"device">>}]
-                                                ,[{'type', <<"user">>}]
-                                                ]
-                            }
-                           ]).
--define(CACHE_UTIL_PROPS, [{'origin_bindings', [[{'db', ?KZ_CONFIG_DB}]
-                                               ,[{'type', <<"media">>}]
-                                               ]
-                           }
-                          ]).
-
--define(CHILDREN, [?CACHE_ARGS(?ECALLMGR_UTIL_CACHE, ?CACHE_UTIL_PROPS)
-                  ,?CACHE_ARGS(?ECALLMGR_AUTH_CACHE, ?CACHE_AUTHN_PROPS)
-                  ,?CACHE(?ECALLMGR_CALL_CACHE)
-                  ,?SUPER('ecallmgr_originate_sup')
-                  ,?WORKER('ecallmgr_registrar')
-                  ,?WORKER('ecallmgr_balance_crawler_statem')
-                  ,?WORKER('ecallmgr_discovery')
-                  ,?WORKER('ecallmgr_usurp_monitor')
-                  ]).
+-define(CHILDREN, [?WORKER_TYPE('ecallmgr_conference_control', 'transient')]).
 
 %%==============================================================================
 %% API functions
@@ -51,8 +31,16 @@
 start_link() ->
     supervisor:start_link({'local', ?SERVER}, ?MODULE, []).
 
--spec cache_proc() -> atom().
-cache_proc() -> ?ECALLMGR_UTIL_CACHE.
+-spec start_conference_control(node(), kz_term:ne_binary(), kz_term:ne_binary()) -> kz_types:sup_startchild_ret().
+start_conference_control(Node, ConferenceId, InstanceId) ->
+    supervisor:start_child(?SERVER, [Node, ConferenceId, InstanceId]).
+
+-spec stop_conference_control(node(), kz_term:ne_binary(), kz_term:ne_binary()) -> any().
+stop_conference_control(Node, ConferenceId, InstanceId) ->
+    [Pid ! {'stop', {Node, ConferenceId, InstanceId}}
+     || {_, Pid, _, _}
+            <- supervisor:which_children(?SERVER), is_pid(Pid)
+    ].
 
 %%==============================================================================
 %% Supervisor callbacks
@@ -67,10 +55,8 @@ cache_proc() -> ?ECALLMGR_UTIL_CACHE.
 %%------------------------------------------------------------------------------
 -spec init(any()) -> kz_types:sup_init_ret().
 init([]) ->
-    RestartStrategy = 'one_for_one',
+    RestartStrategy = 'simple_one_for_one',
     MaxRestarts = 5,
     MaxSecondsBetweenRestarts = 10,
-
     SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
-
     {'ok', {SupFlags, ?CHILDREN}}.

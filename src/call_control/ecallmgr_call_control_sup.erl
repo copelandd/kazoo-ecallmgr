@@ -1,20 +1,24 @@
 %%%-----------------------------------------------------------------------------
 %%% @copyright (C) 2011-2019, 2600Hz
 %%% @doc Simple-One-For-One strategy for restarting call event processes
+%%% @author James Aimonetti <james@2600hz.org>
+%%% @author Karl Anderson <karl@2600hz.org>
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(ecallmgr_originate_sup).
+-module(ecallmgr_call_control_sup).
+
 -behaviour(supervisor).
 
+%% API
 -export([start_link/0]).
--export([start_originate_proc/3]).
+-export([start_proc/1]).
 -export([init/1]).
 
 -include("ecallmgr.hrl").
 
 -define(SERVER, ?MODULE).
 
--define(CHILDREN, [?WORKER_TYPE('ecallmgr_originate', 'transient')]).
+-define(CHILDREN, [?WORKER_TYPE('ecallmgr_call_control', 'temporary')]).
 
 %%%=============================================================================
 %%% API functions
@@ -28,9 +32,15 @@
 start_link() ->
     supervisor:start_link({'local', ?SERVER}, ?MODULE, []).
 
--spec start_originate_proc(atom(), kz_json:object(), map()) -> kz_types:sup_startchild_ret().
-start_originate_proc(Node, JObj, Context) ->
-    supervisor:start_child(?SERVER, [Node, JObj, Context]).
+-spec start_proc(map()) -> kz_types:sup_startchild_ret().
+start_proc(Map) ->
+    supervisor:start_child(?SERVER, [control_q(Map)]).
+
+control_q(#{control_q := _Queue}= Map) -> Map;
+control_q(#{control_q_callback := Fun}= Map) ->
+    Fun(Map);
+control_q(Map) ->
+    ecallmgr_call_control_listener_sup:control_q(Map).
 
 %%%=============================================================================
 %%% Supervisor callbacks
@@ -48,9 +58,7 @@ init([]) ->
     RestartStrategy = 'simple_one_for_one',
     MaxRestarts = 5,
     MaxSecondsBetweenRestarts = 10,
-
     SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
-
     {'ok', {SupFlags, ?CHILDREN}}.
 
 %%%=============================================================================
