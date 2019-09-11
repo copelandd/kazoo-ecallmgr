@@ -42,6 +42,7 @@
                   ,?WORKER('ecallmgr_balance_crawler_statem')
                   ,?WORKER('ecallmgr_discovery')
                   ,?WORKER('ecallmgr_usurp_monitor')
+                  ,?WORKER('ecallmgr_trusted')
                   ]).
 
 %%==============================================================================
